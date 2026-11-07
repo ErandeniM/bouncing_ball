@@ -1,83 +1,118 @@
 package mx.unison;
 
-import java.awt.*;
-import java.awt.geom.Ellipse2D;
+/**
+ * Contiene el movimiento de la pelota y las colisiones.
+ * Antes era un Runnable; ahora Board llama a mover() mediante un Timer.
+ */
+public class BallAnimator {
+    private static final double VELOCIDAD_INICIAL = 4;
+    private static final double TAMANO_INICIAL = 20;
 
-public class BallAnimator implements Runnable {
-    public static final int MAX_X = 640;
-    public static final int MAX_Y = 480;
-    public static final int SIGN = -1;
+    private final int anchoTablero;
+    private final int altoTablero;
+    private final Paddle raqueta;
+    private double x, y;
+    private double velocidadX, velocidadY;
+    private double tamano = TAMANO_INICIAL;
+    private GameState estado = GameState.PAUSED;
 
-    public static final int DX = 10;
-    public static final int DY = 10;
-    private Ellipse2D.Double ball;
-
-    private int ballX;
-    private int ballY;
-
-    private volatile int esperaMs = 150;
-    private volatile boolean pausado = false;
-
-    public BallAnimator(Shape shape) {
-        ball = ( Ellipse2D.Double) shape;
-        ballX = 320;
-        ballY = 240;
-        ball.x = ballX ;
-        ball.y = ballY;
+    public BallAnimator(int anchoTablero, int altoTablero, Paddle raqueta) {
+        this.anchoTablero = anchoTablero;
+        this.altoTablero = altoTablero;
+        this.raqueta = raqueta;
+        reiniciar();
+        estado = GameState.PAUSED;
     }
 
-    @Override
-    public void run() {
-        int sY = 1;
-        int sX = 1;
+    public void iniciar() {
+        if (estado == GameState.PAUSED) estado = GameState.RUNNING;
+    }
 
-        while (!Thread.currentThread().isInterrupted()) {
+    public void pausar() {
+        if (estado == GameState.RUNNING) estado = GameState.PAUSED;
+    }
 
-            // Solo mover la pelota si no está pausada
-            if (!pausado) {
+    public void detener() { estado = GameState.STOPPED; }
 
-                if (ballY < 0) {
-                    sY = sY * SIGN;
-                }
+    public void reiniciar() {
+        x = (anchoTablero - tamano) / 2;
+        y = altoTablero / 2.0;
+        velocidadX = VELOCIDAD_INICIAL;
+        velocidadY = VELOCIDAD_INICIAL;
+        estado = GameState.RUNNING;
+    }
 
-                if (ballX < 0) {
-                    sX = sX * SIGN;
-                }
+    /** Avanza un paso; no necesita hilos porque el Timer funciona en el EDT. */
+    public void mover() {
+        if (estado != GameState.RUNNING) return;
 
-                if (ballY > (MAX_Y - ball.height)) {
-                    sY = sY * SIGN;
-                }
+        double siguienteX = x + velocidadX;
+        double siguienteY = y + velocidadY;
 
-                if (ballX > (MAX_X - ball.width)) {
-                    sX = sX * SIGN;
-                }
+        // Limites izquierdo y derecho (considera el tamaño de la pelota).
+        if (siguienteX < 0) {
+            siguienteX = 0;
+            velocidadX = Math.abs(velocidadX);
+        } else if (siguienteX + tamano > anchoTablero) {
+            siguienteX = anchoTablero - tamano;
+            velocidadX = -Math.abs(velocidadX);
+        }
 
-                ballX = ballX + (DX * sX);
-                ballY = ballY + (DY * sY);
+        if (siguienteY < 0) {
+            siguienteY = 0;
+            velocidadY = Math.abs(velocidadY);
+        }
 
-                ball.x = ballX;
-                ball.y = ballY;
-            }
+        // La pelota rebota si cruza la parte superior de la raqueta bajando.
+        boolean cruzaRaqueta = velocidadY > 0
+                && y + tamano <= raqueta.getY()
+                && siguienteY + tamano >= raqueta.getY();
+        boolean coincideEnHorizontal = siguienteX + tamano > raqueta.getX()
+                && siguienteX < raqueta.getX() + raqueta.getAncho();
 
-            try {
-                Thread.sleep(pausado ? 30 : esperaMs);
+        if (cruzaRaqueta && coincideEnHorizontal) {
+            siguienteY = raqueta.getY() - tamano;
+            velocidadY = -Math.abs(velocidadY);
+        }
 
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
-            }
+        x = siguienteX;
+        y = siguienteY;
+
+        // Pelota perdida: llegó abajo sin ser atrapada.
+        if (y + tamano >= altoTablero) {
+            y = altoTablero - tamano;
+            detener();
         }
     }
 
-    public void aumentarVelocidad() {
-        esperaMs = Math.max(30, esperaMs - 20);
+    /** Ajustes de tamaño que ya existían en el proyecto anterior. */
+    public void zoomIn() {
+        tamano = Math.min(100, tamano * 1.1);
+        ajustarLimites();
     }
 
-    public void disminuirVelocidad() {
-        esperaMs = Math.min(500, esperaMs + 20);
+    public void zoomOut() {
+        tamano = Math.max(15, tamano * 0.9);
+        ajustarLimites();
     }
 
-    public void alternarPausa() {
-        pausado = !pausado;
+    private void ajustarLimites() {
+        x = Math.min(x, anchoTablero - tamano);
+        y = Math.min(y, altoTablero - tamano);
+    }
+
+    public double getX() { return x; }
+    public double getY() { return y; }
+    public double getTamano() { return tamano; }
+    public double getVelocidadX() { return velocidadX; }
+    public double getVelocidadY() { return velocidadY; }
+    public GameState getEstado() { return estado; }
+
+    // Permite preparar posiciones concretas al probar las colisiones.
+    void colocarPelota(double x, double y, double velocidadX, double velocidadY) {
+        this.x = x;
+        this.y = y;
+        this.velocidadX = velocidadX;
+        this.velocidadY = velocidadY;
     }
 }

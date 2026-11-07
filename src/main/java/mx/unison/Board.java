@@ -1,140 +1,102 @@
 package mx.unison;
 
-
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
-import java.awt.event.KeyListener;
 import java.awt.geom.Ellipse2D;
-import java.util.logging.Logger;
 
-public class Board  extends JComponent
-        implements Runnable,         KeyListener {
+/** Dibuja el tablero y recibe las teclas. La física está en BallAnimator. */
+public class Board extends JPanel {
+    private static final int ANCHO = 640;
+    private static final int ALTO = 480;
 
-    private static final Logger LOG = Logger.getLogger(Board.class.getName());
-
-    private Dimension preferredSize = null;  // dimsensiones del tablero
-    private Ellipse2D.Double ball;   // pelota que rebota
-
-    private Thread ballAnimator;  // contrala el movimiento de la pelota
-    private Thread boardRefresher;  // controla cada cuando se refresca el tablero
-
-    private BallAnimator movimiento;
+    private final Paddle raqueta = new Paddle(ANCHO, ALTO);
+    private final BallAnimator pelota = new BallAnimator(ANCHO, ALTO, raqueta);
+    private final Timer timer;
 
     public Board() {
-        super();
+        setBackground(Color.WHITE);
+        setPreferredSize(new Dimension(ANCHO, ALTO));
 
-        setOpaque(true);
-        setBorder(BorderFactory.createMatteBorder(5, 5, 5, 5, Color.BLACK));
-        setFocusable(true);
-        addKeyListener(this);
-        // dimensiones y posicion iniciales de la pelota
-        ball = new Ellipse2D.Double(20,320,20,20);
-
-        movimiento = new BallAnimator(ball);
-        this.ballAnimator = new Thread(movimiento, "BounceThread");
-        this.ballAnimator.start();
-
-        boardRefresher = new Thread( this,"RefreshThread");
-        boardRefresher.start();
+        // Un solo Timer reemplaza los dos hilos de la versión anterior.
+        timer = new Timer(25, e -> actualizar());
+        configurarTeclas();
     }
 
+    private void actualizar() {
+        pelota.mover();
+        if (pelota.getEstado() == GameState.STOPPED) timer.stop();
+        repaint();
+    }
+
+    public void iniciar() {
+        pelota.iniciar();
+        timer.start();
+    }
+
+    public void detener() {
+        timer.stop();
+        pelota.detener();
+    }
+
+    private void pausar() {
+        pelota.pausar();
+        timer.stop();
+        repaint();
+    }
+
+    private void reanudar() {
+        if (pelota.getEstado() == GameState.STOPPED) pelota.reiniciar();
+        else pelota.iniciar();
+        timer.start();
+        repaint();
+    }
+
+    private void configurarTeclas() {
+        // Key Bindings funcionan aunque el tablero no tenga el foco directo.
+        asignarTecla(KeyEvent.VK_LEFT, "izquierda", () -> raqueta.mover(-25));
+        asignarTecla(KeyEvent.VK_RIGHT, "derecha", () -> raqueta.mover(25));
+        asignarTecla(KeyEvent.VK_SPACE, "pausar", this::pausar);
+        asignarTecla(KeyEvent.VK_R, "reanudar", this::reanudar);
+        asignarTecla(KeyEvent.VK_P, "alternar", () -> {
+            if (pelota.getEstado() == GameState.RUNNING) pausar();
+            else reanudar();
+        });
+        asignarTecla(KeyEvent.VK_A, "rapido", () -> timer.setDelay(Math.max(10, timer.getDelay() - 5)));
+        asignarTecla(KeyEvent.VK_S, "lento", () -> timer.setDelay(Math.min(80, timer.getDelay() + 5)));
+        asignarTecla(KeyEvent.VK_I, "agrandar", pelota::zoomIn);
+        asignarTecla(KeyEvent.VK_O, "achicar", pelota::zoomOut);
+    }
+
+    private void asignarTecla(int tecla, String nombre, Runnable accion) {
+        getInputMap(WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(tecla, 0), nombre);
+        getActionMap().put(nombre, new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent evento) {
+                accion.run();
+                repaint();
+            }
+        });
+    }
+
+    @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
-        // pintar fondo
-        if (isOpaque()) {
-            g.setColor( getBackground() );
-            g.fillRect(0, 0, getWidth(), getHeight());
-            g.setColor(getForeground());
-        }
-
         Graphics2D g2 = (Graphics2D) g;
 
-        g2.setStroke(new BasicStroke(5.0f));
-
         g2.setColor(Color.RED);
+        g2.fill(new Ellipse2D.Double(pelota.getX(), pelota.getY(),
+                pelota.getTamano(), pelota.getTamano()));
 
-        // pintar la pelota en el tablero
-        g2.fill(ball);
         g2.setColor(Color.BLACK);
-    }
+        g2.fillRect(raqueta.getX(), raqueta.getY(), raqueta.getAncho(), raqueta.getAlto());
+        g2.drawString("Flechas: mover | Espacio: pausa | R: seguir | A/S: velocidad | I/O: tamaño", 12, 20);
 
-    public Dimension getPreferredSize() {
-        if (preferredSize == null) {
-            return new Dimension(640, 480);
-        } else {
-            return super.getPreferredSize();
+        if (pelota.getEstado() == GameState.PAUSED) {
+            g2.drawString("PAUSA - presiona R", 260, 210);
+        } else if (pelota.getEstado() == GameState.STOPPED) {
+            g2.drawString("Pelota perdida - presiona R para reiniciar", 190, 210);
         }
-    }
-
-    public void setPreferredSize(Dimension newPrefSize) {
-        preferredSize = newPrefSize;
-        super.setPreferredSize(newPrefSize);
-    }
-
-    @Override
-    public void run() {
-        while ( true ) {
-            repaint();
-            try {
-                Thread.sleep(100L);
-            } catch (InterruptedException e) {
-                 LOG.warning( e.getMessage() );
-            }
-        }
-    }
-
-    public void zoomIn() {
-        if(ball.width > 100) {
-            return;
-        }
-        ball.width = ball.width * 1.1;
-        ball.height = ball.height * 1.1;
-    }
-
-    public void zoomOut() {
-        if(ball.width < 20) {
-            return;
-        }
-        ball.width = ball.width * 0.9;
-        ball.height = ball.height * 0.9;
-    }
-
-
-    @Override
-    public void keyTyped(KeyEvent e) {
-
-        char key = Character.toLowerCase(e.getKeyChar());
-
-        if (key == 'o') {
-            zoomOut();
-        }
-
-        if (key == 'i') {
-            zoomIn();
-        }
-
-        if (key == 'a') {
-            movimiento.aumentarVelocidad();
-        }
-
-        if (key == 's') {
-            movimiento.disminuirVelocidad();
-        }
-
-        if (key == 'p') {
-            movimiento.alternarPausa();
-        }
-    }
-
-
-    @Override
-    public void keyPressed(KeyEvent e) {
-
-    }
-
-    @Override
-    public void keyReleased(KeyEvent e) {
-
     }
 }
