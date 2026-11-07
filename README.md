@@ -35,5 +35,4 @@ El proyecto mantiene la configuración Gradle de mi repositorio original.
 Ejecuta `./gradlew test` (requiere poder descargar JUnit si aún no está en caché).
 Los 12 casos funcionales para revisar en la ventana están en `docs/PRUEBAS.md`.
 
-**Nota:** es una adaptación de `bouncing_ball`, no la refactorización del código
-fuente original `pong_project`, que no estaba disponible.
+**Nota:** es una adaptación de `bouncing_ball`.
